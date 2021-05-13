@@ -1,0 +1,17 @@
+[package]
+name = "libdivide"
+description = """Port of libdivide."""
+version = "0.4.0"
+homepage = "https://github.com/youknowone/rust-divide"
+documentation = "https://docs.rs/libdivide"
+repository = "https://github.com/youknowone/rust-divide"
+authors = ["Jeong YunWon <libdivide@youknowone.org>"]
+edition = "2018"
+license = "zlib"
+keywords = ["libdivide", "divide"]
+categories = ["math"]
+readme = "README.md"
+
+[dependencies]
+num-integer = "0.1.44"
+num-traits = "0.2.14"
