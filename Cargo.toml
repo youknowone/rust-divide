@@ -7,9 +7,9 @@ documentation = "https://docs.rs/libdivide"
 repository = "https://github.com/youknowone/rust-divide"
 authors = ["Jeong YunWon <libdivide@youknowone.org>"]
 edition = "2018"
-license = "zlib"
+license = "Zlib"
 keywords = ["libdivide", "divide"]
-categories = ["math"]
+categories = ["mathematics", "algorithms"]
 readme = "README.md"
 
 [dependencies]
