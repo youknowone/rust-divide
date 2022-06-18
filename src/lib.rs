@@ -14,13 +14,15 @@ use num_integer::Integer;
 use num_traits::{PrimInt, Unsigned, WrappingShr};
 use std::convert::TryInto;
 
-#[repr(C, packed)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[repr(C)]
 pub struct Divider<T: PrimInt> {
     magic: T,
     more: u8,
 }
 
-#[repr(C, packed)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[repr(C)]
 pub struct BranchFreeDivider<T> {
     magic: T,
     more: u8,
