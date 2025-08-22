@@ -383,6 +383,7 @@ impl DividerInt for i32 {
         }
     }
 
+    #[inline]
     fn branchfree_recover(denom: &BranchFreeDivider<Self>) -> Self {
         Self::recover(unsafe { &*(denom as *const _ as *const Divider<Self>) })
     }
@@ -629,6 +630,7 @@ impl DividerInt for i64 {
         }
     }
 
+    #[inline]
     fn branchfree_recover(denom: &BranchFreeDivider<Self>) -> Self {
         Self::recover(unsafe { &*(denom as *const _ as *const Divider<Self>) })
     }
@@ -669,6 +671,7 @@ impl<T: DividerInt> BranchFreeDivider<T> {
 impl std::ops::Div<&Divider<Self>> for u32 {
     type Output = Self;
 
+    #[inline]
     fn div(self, denom: &Divider<Self>) -> Self::Output {
         self.unsigned_div_by(denom)
     }
@@ -677,6 +680,7 @@ impl std::ops::Div<&Divider<Self>> for u32 {
 impl std::ops::Div<&BranchFreeDivider<Self>> for u32 {
     type Output = Self;
 
+    #[inline]
     fn div(self, denom: &BranchFreeDivider<Self>) -> Self::Output {
         self.unsigned_branchfree_div_by(denom)
     }
@@ -685,6 +689,7 @@ impl std::ops::Div<&BranchFreeDivider<Self>> for u32 {
 impl std::ops::Div<&Divider<Self>> for i32 {
     type Output = Self;
 
+    #[inline]
     fn div(self, denom: &Divider<Self>) -> Self::Output {
         let numer = self;
         let more = denom.more;
@@ -718,6 +723,7 @@ impl std::ops::Div<&Divider<Self>> for i32 {
 impl std::ops::Div<&BranchFreeDivider<Self>> for i32 {
     type Output = Self;
 
+    #[inline]
     fn div(self, denom: &BranchFreeDivider<Self>) -> Self::Output {
         let numer = self;
         let more = denom.more;
@@ -747,6 +753,7 @@ impl std::ops::Div<&BranchFreeDivider<Self>> for i32 {
 impl std::ops::Div<&Divider<Self>> for u64 {
     type Output = Self;
 
+    #[inline]
     fn div(self, denom: &Divider<Self>) -> Self::Output {
         self.unsigned_div_by(denom)
     }
@@ -755,6 +762,7 @@ impl std::ops::Div<&Divider<Self>> for u64 {
 impl std::ops::Div<&BranchFreeDivider<Self>> for u64 {
     type Output = Self;
 
+    #[inline]
     fn div(self, denom: &BranchFreeDivider<Self>) -> Self::Output {
         self.unsigned_branchfree_div_by(denom)
     }
@@ -763,6 +771,7 @@ impl std::ops::Div<&BranchFreeDivider<Self>> for u64 {
 impl std::ops::Div<&Divider<Self>> for i64 {
     type Output = Self;
 
+    #[inline]
     fn div(self, denom: &Divider<Self>) -> Self::Output {
         let numer = self;
         let more = denom.more;
@@ -796,6 +805,7 @@ impl std::ops::Div<&Divider<Self>> for i64 {
 impl std::ops::Div<&BranchFreeDivider<Self>> for i64 {
     type Output = Self;
 
+    #[inline]
     fn div(self, denom: &BranchFreeDivider<Self>) -> Self::Output {
         let numer = self;
         let more = denom.more;
