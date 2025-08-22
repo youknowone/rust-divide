@@ -13,6 +13,7 @@
 use num_integer::Integer;
 use num_traits::{PrimInt, Unsigned, WrappingShr};
 use std::convert::TryInto;
+use std::fmt::Debug;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct DividerInner<T> {
@@ -80,22 +81,26 @@ pub enum DividerError {
     BranchFreeOne,
 }
 
-pub trait DividerInt: PrimInt {
+pub trait DividerInt: PrimInt
+where
+    <Self::Double as TryInto<Self>>::Error: Debug,
+{
     const SHIFT_MASK: u8;
-    const _BITS: u32; // TODO: rename to BITS after 1.53
+    const BITS: u32;
     const SIGNED: bool;
     type Double: PrimInt + From<Self> + TryInto<Self>;
     type Unsigned: PrimInt + Unsigned;
     type UnsignedDouble: PrimInt + Unsigned;
 
     #[inline]
+    // this funciton can be simplified with an unstable Self::widening_mul without using Self::Double.
+    // https://github.com/rust-lang/rust/issues/85532
     fn mullhi(x: Self, y: Self) -> Self {
         let x = Self::Double::from(x);
         let y = Self::Double::from(y);
         let r = x * y;
-        (r >> Self::_BITS as usize)
-            .try_into()
-            .unwrap_or_else(|_| unsafe { std::hint::unreachable_unchecked() })
+        // unwrap is optimized away if the shift is right.
+        (r >> Self::BITS as usize).try_into().unwrap()
     }
     fn internal_gen(self, branchfree: bool) -> Result<DividerInner<Self>, DividerError>;
     fn gen(self) -> Result<DividerInner<Self>, DividerError> {
@@ -148,7 +153,7 @@ pub trait DividerInt: PrimInt {
 
 impl DividerInt for u32 {
     const SHIFT_MASK: u8 = SHIFT_MASK_32;
-    const _BITS: u32 = 32;
+    const BITS: u32 = 32;
     const SIGNED: bool = false;
     type Double = u64;
     type Unsigned = Self;
@@ -160,7 +165,7 @@ impl DividerInt for u32 {
             return Err(DividerError::Zero);
         }
 
-        let floor_log_2_d = (Self::_BITS - 1) - d.leading_zeros();
+        let floor_log_2_d = (Self::BITS - 1) - d.leading_zeros();
 
         // Power of 2
         Ok(if (d & (d - 1)) == 0 {
@@ -215,7 +220,7 @@ impl DividerInt for u32 {
             // We need to ceil it.
             // We know d is not a power of 2, so m is not a power of 2,
             // so we can just add 1 to the floor
-            let dividend: Self::Double = 1 << (shift as u32 + Self::_BITS);
+            let dividend: Self::Double = 1 << (shift as u32 + Self::BITS);
             1 + (dividend / denom.magic as Self::Double) as Self
         } else {
             // Here we wish to compute d = 2^(32+shift+1)/(m+2^32).
@@ -252,7 +257,7 @@ impl DividerInt for u32 {
             // Also note that shift may be as high as 31, so shift + 1 will
             // overflow. So we have to compute it as 2^(32+shift)/(m+2^32), and
             // then double the quotient and remainder.
-            let half_n: Self::Double = 1 << (Self::_BITS + shift as u32);
+            let half_n: Self::Double = 1 << (Self::BITS + shift as u32);
             let d = (1 << Self::BITS) | denom.magic as Self::Double;
             // Note that the quotient is guaranteed <= 32 bits, but the remainder
             // may need 33!
@@ -272,7 +277,7 @@ impl DividerInt for u32 {
 
 impl DividerInt for i32 {
     const SHIFT_MASK: u8 = SHIFT_MASK_32;
-    const _BITS: u32 = 32;
+    const BITS: u32 = 32;
     const SIGNED: bool = true;
     type Double = i64;
     type Unsigned = u32;
@@ -292,7 +297,7 @@ impl DividerInt for i32 {
         // INT_MIN, because abs(INT_MIN) == INT_MIN, and INT_MIN has one bit set
         // and is a power of 2.
         let abs_d = (if d < 0 { d.wrapping_neg() } else { d }) as Self::Unsigned;
-        let floor_log_2_d = (Self::_BITS - 1) - abs_d.leading_zeros();
+        let floor_log_2_d = (Self::BITS - 1) - abs_d.leading_zeros();
         // check if exactly one bit is set,
         // don't care if abs_d is 0 since that's divide by zero
         Ok(if (abs_d & (abs_d - 1)) == 0 {
@@ -307,7 +312,7 @@ impl DividerInt for i32 {
             // the dividend here is 2**(floor_log_2_d + 31), so the low 32 bit word
             // is 0 and the high word is floor_log_2_d - 1
             let (proposed_m, rem) =
-                (1u64 << (floor_log_2_d - 1 + Self::_BITS)).div_rem(&(abs_d as u64));
+                (1u64 << (floor_log_2_d - 1 + Self::BITS)).div_rem(&(abs_d as u64));
             let mut proposed_m = proposed_m as Self::Unsigned;
             let rem = rem as Self::Unsigned;
             let e = abs_d - rem;
@@ -397,7 +402,7 @@ impl DividerInt for i32 {
 
 impl DividerInt for u64 {
     const SHIFT_MASK: u8 = SHIFT_MASK_64;
-    const _BITS: u32 = 64;
+    const BITS: u32 = 64;
     const SIGNED: bool = false;
     type Double = u128;
     type Unsigned = Self;
@@ -531,7 +536,7 @@ impl DividerInt for u64 {
 
 impl DividerInt for i64 {
     const SHIFT_MASK: u8 = SHIFT_MASK_64;
-    const _BITS: u32 = 64;
+    const BITS: u32 = 64;
     const SIGNED: bool = true;
     type Double = i128;
     type Unsigned = u64;
@@ -551,7 +556,7 @@ impl DividerInt for i64 {
         // INT_MIN, because abs(INT_MIN) == INT_MIN, and INT_MIN has one bit set
         // and is a power of 2.
         let abs_d = (if d < 0 { d.wrapping_neg() } else { d }) as Self::Unsigned;
-        let floor_log_2_d = (Self::_BITS - 1) - abs_d.leading_zeros();
+        let floor_log_2_d = (Self::BITS - 1) - abs_d.leading_zeros();
         // check if exactly one bit is set,
         // don't care if abs_d is 0 since that's divide by zero
         Ok(if (abs_d & (abs_d - 1)) == 0 {
@@ -566,7 +571,7 @@ impl DividerInt for i64 {
             // the dividend here is 2**(floor_log_2_d + 31), so the low 32 bit word
             // is 0 and the high word is floor_log_2_d - 1
             let (proposed_m, rem) =
-                (1u128 << (floor_log_2_d - 1 + Self::_BITS)).div_rem(&(abs_d as u128));
+                (1u128 << (floor_log_2_d - 1 + Self::BITS)).div_rem(&(abs_d as u128));
             let mut proposed_m = proposed_m as Self::Unsigned;
             let rem = rem as Self::Unsigned;
             let e = abs_d - rem;
@@ -626,7 +631,7 @@ impl DividerInt for i64 {
             } else {
                 denom.magic
             } as Self::Unsigned;
-            let n = 1u128 << (shift as u32 + Self::_BITS);
+            let n = 1u128 << (shift as u32 + Self::BITS);
             let q = (n / d as u128) as u64;
             let mut result = (q + 1) as Self;
             if negative_divisor {
