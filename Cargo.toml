@@ -8,6 +8,7 @@ repository = "https://github.com/youknowone/rust-divide"
 authors = ["Jeong YunWon <libdivide@youknowone.org>"]
 edition = "2018"
 license = "Zlib"
+license-file = "LICENSE.txt"
 keywords = ["libdivide", "divide"]
 categories = ["mathematics", "algorithms"]
 readme = "README.md"
