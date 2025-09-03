@@ -13,20 +13,21 @@
 use num_integer::Integer;
 use num_traits::{PrimInt, Unsigned, WrappingShr};
 use std::convert::TryInto;
+use std::fmt::Debug;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[repr(C)]
-pub struct Divider<T: PrimInt> {
+pub struct DividerInner<T> {
     magic: T,
     more: u8,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[repr(C)]
-pub struct BranchFreeDivider<T> {
-    magic: T,
-    more: u8,
-}
+#[repr(transparent)]
+pub struct Divider<T: PrimInt>(DividerInner<T>);
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[repr(transparent)]
+pub struct BranchFreeDivider<T: PrimInt>(DividerInner<T>);
 
 // Explanation of the "more" field:
 //
@@ -60,6 +61,13 @@ pub struct BranchFreeDivider<T> {
 // In s32 and s64 branchfree modes, the magic number is negated according to
 // whether the divisor is negated. In branchfree strategy, it is not negated.
 
+impl<T> DividerInner<T> {
+    #[inline]
+    fn new(magic: T, more: u8) -> Self {
+        Self { magic, more }
+    }
+}
+
 const SHIFT_MASK_32: u8 = 0x1F;
 const SHIFT_MASK_64: u8 = 0x3F;
 const ADD_MARKER: u8 = 0x40;
@@ -73,51 +81,54 @@ pub enum DividerError {
     BranchFreeOne,
 }
 
-pub trait DividerInt: PrimInt {
+pub trait DividerInt: PrimInt
+where
+    <Self::Double as TryInto<Self>>::Error: Debug,
+{
     const SHIFT_MASK: u8;
-    const _BITS: u32; // TODO: rename to BITS after 1.53
+    const BITS: u32;
     const SIGNED: bool;
     type Double: PrimInt + From<Self> + TryInto<Self>;
     type Unsigned: PrimInt + Unsigned;
     type UnsignedDouble: PrimInt + Unsigned;
 
     #[inline]
+    // this funciton can be simplified with an unstable Self::widening_mul without using Self::Double.
+    // https://github.com/rust-lang/rust/issues/85532
     fn mullhi(x: Self, y: Self) -> Self {
         let x = Self::Double::from(x);
         let y = Self::Double::from(y);
         let r = x * y;
-        (r >> Self::_BITS as usize)
-            .try_into()
-            .unwrap_or_else(|_| unsafe { std::hint::unreachable_unchecked() })
+        // unwrap is optimized away if the shift is right.
+        (r >> Self::BITS as usize).try_into().unwrap()
     }
-    fn internal_gen(self, branchfree: bool) -> Result<(Self, u8), DividerError>;
-    fn gen(self) -> Result<Divider<Self>, DividerError> {
-        let (magic, more) = self.internal_gen(false)?;
-        Ok(Divider { magic, more })
+    fn internal_gen(self, branchfree: bool) -> Result<DividerInner<Self>, DividerError>;
+    fn gen(self) -> Result<DividerInner<Self>, DividerError> {
+        self.internal_gen(false)
     }
-    fn branchfree_gen(self) -> Result<BranchFreeDivider<Self>, DividerError> {
-        let (magic, more) = if Self::SIGNED {
-            self.internal_gen(true)?
+    fn branchfree_gen(self) -> Result<DividerInner<Self>, DividerError> {
+        if Self::SIGNED {
+            self.internal_gen(true)
         } else {
             if self == Self::one() {
                 return Err(DividerError::BranchFreeOne);
             }
-            let (magic, more) = self.internal_gen(true)?;
-            (magic, more & Self::SHIFT_MASK)
-        };
-        Ok(BranchFreeDivider { magic, more })
+            let mut inner = self.internal_gen(true)?;
+            inner.more &= Self::SHIFT_MASK;
+            Ok(inner)
+        }
     }
-    fn recover(denom: &Divider<Self>) -> Self;
-    fn branchfree_recover(denom: &BranchFreeDivider<Self>) -> Self;
+    fn recover(denom: &DividerInner<Self>) -> Self;
+    fn branchfree_recover(denom: &DividerInner<Self>) -> Self;
 
     fn unsigned_div_by(self, denom: &Divider<Self>) -> Self {
         let numer = self;
-        let magic = denom.magic;
-        let more = denom.more;
+        let magic = denom.0.magic;
+        let more = denom.0.more;
         if magic.is_zero() {
             numer.shr(more as usize)
         } else {
-            let q = Self::mullhi(denom.magic, numer);
+            let q = Self::mullhi(magic, numer);
             if (more & ADD_MARKER) != 0 {
                 let t = ((numer - q) >> 1) + q;
                 t.shr((more & Self::SHIFT_MASK) as usize)
@@ -134,27 +145,27 @@ pub trait DividerInt: PrimInt {
         Self: WrappingShr,
     {
         let numer = self;
-        let q = Self::mullhi(denom.magic, numer);
+        let q = Self::mullhi(denom.0.magic, numer);
         let t = ((numer - q) >> 1) + q;
-        t.wrapping_shr(denom.more as u32)
+        t.wrapping_shr(denom.0.more as u32)
     }
 }
 
 impl DividerInt for u32 {
     const SHIFT_MASK: u8 = SHIFT_MASK_32;
-    const _BITS: u32 = 32;
+    const BITS: u32 = 32;
     const SIGNED: bool = false;
     type Double = u64;
     type Unsigned = Self;
     type UnsignedDouble = Self::Double;
 
-    fn internal_gen(self, branchfree: bool) -> Result<(Self, u8), DividerError> {
+    fn internal_gen(self, branchfree: bool) -> Result<DividerInner<Self>, DividerError> {
         let d = self;
         if d == 0 {
             return Err(DividerError::Zero);
         }
 
-        let floor_log_2_d = (Self::_BITS as u32 - 1) - d.leading_zeros();
+        let floor_log_2_d = (Self::BITS - 1) - d.leading_zeros();
 
         // Power of 2
         Ok(if (d & (d - 1)) == 0 {
@@ -162,7 +173,7 @@ impl DividerInt for u32 {
             // branchfree divider because there is a hardcoded right shift by 1
             // in its division algorithm. Because of this we also need to add back
             // 1 in its recovery algorithm.
-            (0, (floor_log_2_d - u32::from(branchfree)) as u8)
+            DividerInner::new(0, (floor_log_2_d - u32::from(branchfree)) as u8)
         } else {
             let (proposed_m, rem) = (1u64 << (floor_log_2_d + 32)).div_rem(&(d as u64));
             let mut proposed_m = proposed_m as u32;
@@ -188,7 +199,7 @@ impl DividerInt for u32 {
                 }
                 (floor_log_2_d as u8) | ADD_MARKER
             };
-            (1 + proposed_m, more)
+            DividerInner::new(1 + proposed_m, more)
             // result.more's shift should in general be ceil_log_2_d. But if we
             // used the smaller power, we subtract one from the shift because we're
             // using the smaller power. If we're using the larger power, we
@@ -197,7 +208,7 @@ impl DividerInt for u32 {
         })
     }
 
-    fn recover(denom: &Divider<Self>) -> Self {
+    fn recover(denom: &DividerInner<Self>) -> Self {
         let more = denom.more;
         let shift = more & Self::SHIFT_MASK;
 
@@ -209,7 +220,7 @@ impl DividerInt for u32 {
             // We need to ceil it.
             // We know d is not a power of 2, so m is not a power of 2,
             // so we can just add 1 to the floor
-            let dividend: Self::Double = 1 << (shift as u32 + Self::_BITS);
+            let dividend: Self::Double = 1 << (shift as u32 + Self::BITS);
             1 + (dividend / denom.magic as Self::Double) as Self
         } else {
             // Here we wish to compute d = 2^(32+shift+1)/(m+2^32).
@@ -230,11 +241,11 @@ impl DividerInt for u32 {
             let full_q = half_q + half_q + Self::from((rem << 1) >= d);
 
             // We rounded down in gen (hence +1)
-            return full_q + 1;
+            full_q + 1
         }
     }
 
-    fn branchfree_recover(denom: &BranchFreeDivider<Self>) -> Self {
+    fn branchfree_recover(denom: &DividerInner<Self>) -> Self {
         let more = denom.more;
         let shift = more & Self::SHIFT_MASK;
 
@@ -246,8 +257,8 @@ impl DividerInt for u32 {
             // Also note that shift may be as high as 31, so shift + 1 will
             // overflow. So we have to compute it as 2^(32+shift)/(m+2^32), and
             // then double the quotient and remainder.
-            let half_n: Self::Double = 1 << (Self::_BITS + shift as u32);
-            let d = (1 << Self::_BITS) | denom.magic as Self::Double;
+            let half_n: Self::Double = 1 << (Self::BITS + shift as u32);
+            let d = (1 << Self::BITS) | denom.magic as Self::Double;
             // Note that the quotient is guaranteed <= 32 bits, but the remainder
             // may need 33!
             let (half_q, rem) = half_n.div_rem(&d);
@@ -259,20 +270,20 @@ impl DividerInt for u32 {
             let full_q = half_q + half_q + Self::from((rem << 1) >= d);
 
             // We rounded down in gen (hence +1)
-            return full_q + 1;
+            full_q + 1
         }
     }
 }
 
 impl DividerInt for i32 {
     const SHIFT_MASK: u8 = SHIFT_MASK_32;
-    const _BITS: u32 = 32;
+    const BITS: u32 = 32;
     const SIGNED: bool = true;
     type Double = i64;
     type Unsigned = u32;
     type UnsignedDouble = u64;
 
-    fn internal_gen(self, branchfree: bool) -> Result<(Self, u8), DividerError> {
+    fn internal_gen(self, branchfree: bool) -> Result<DividerInner<Self>, DividerError> {
         let d = self;
 
         if d == 0 {
@@ -286,12 +297,12 @@ impl DividerInt for i32 {
         // INT_MIN, because abs(INT_MIN) == INT_MIN, and INT_MIN has one bit set
         // and is a power of 2.
         let abs_d = (if d < 0 { d.wrapping_neg() } else { d }) as Self::Unsigned;
-        let floor_log_2_d = (Self::_BITS - 1) - abs_d.leading_zeros();
+        let floor_log_2_d = (Self::BITS - 1) - abs_d.leading_zeros();
         // check if exactly one bit is set,
         // don't care if abs_d is 0 since that's divide by zero
         Ok(if (abs_d & (abs_d - 1)) == 0 {
             // Branchfree and normal paths are exactly the same
-            (
+            DividerInner::new(
                 0,
                 floor_log_2_d as u8 | if d < 0 { NEGATIVE_DIVISOR } else { 0 },
             )
@@ -301,7 +312,7 @@ impl DividerInt for i32 {
             // the dividend here is 2**(floor_log_2_d + 31), so the low 32 bit word
             // is 0 and the high word is floor_log_2_d - 1
             let (proposed_m, rem) =
-                (1u64 << (floor_log_2_d - 1 + Self::_BITS)).div_rem(&(abs_d as u64));
+                (1u64 << (floor_log_2_d - 1 + Self::BITS)).div_rem(&(abs_d as u64));
             let mut proposed_m = proposed_m as Self::Unsigned;
             let rem = rem as Self::Unsigned;
             let e = abs_d - rem;
@@ -334,11 +345,11 @@ impl DividerInt for i32 {
                     magic = -magic;
                 }
             }
-            (magic, more)
+            DividerInner::new(magic, more)
         })
     }
 
-    fn recover(denom: &Divider<Self>) -> Self {
+    fn recover(denom: &DividerInner<Self>) -> Self {
         let more = denom.more;
         let shift = more & Self::SHIFT_MASK;
         if 0 == denom.magic {
@@ -384,20 +395,20 @@ impl DividerInt for i32 {
     }
 
     #[inline]
-    fn branchfree_recover(denom: &BranchFreeDivider<Self>) -> Self {
-        Self::recover(unsafe { &*(denom as *const _ as *const Divider<Self>) })
+    fn branchfree_recover(denom: &DividerInner<Self>) -> Self {
+        Self::recover(denom)
     }
 }
 
 impl DividerInt for u64 {
     const SHIFT_MASK: u8 = SHIFT_MASK_64;
-    const _BITS: u32 = 64;
+    const BITS: u32 = 64;
     const SIGNED: bool = false;
     type Double = u128;
     type Unsigned = Self;
     type UnsignedDouble = Self::Double;
 
-    fn internal_gen(self, branchfree: bool) -> Result<(Self, u8), DividerError> {
+    fn internal_gen(self, branchfree: bool) -> Result<DividerInner<Self>, DividerError> {
         let d = self;
 
         if d == 0 {
@@ -411,7 +422,7 @@ impl DividerInt for u64 {
             // branchfree divider because there is a hardcoded right shift by 1
             // in its division algorithm. Because of this we also need to add back
             // 1 in its recovery algorithm.
-            (0, (floor_log_2_d - u32::from(branchfree)) as u8)
+            DividerInner::new(0, (floor_log_2_d - u32::from(branchfree)) as u8)
         } else {
             // (1 << (64 + floor_log_2_d)) / d
             let (proposed_m, rem) = (1u128 << (floor_log_2_d + 64)).div_rem(&(d as u128));
@@ -439,7 +450,7 @@ impl DividerInt for u64 {
                 (floor_log_2_d as u8) | ADD_MARKER
             };
 
-            (1 + proposed_m, more)
+            DividerInner::new(1 + proposed_m, more)
             // result.more's shift should in general be ceil_log_2_d. But if we
             // used the smaller power, we subtract one from the shift because we're
             // using the smaller power. If we're using the larger power, we
@@ -449,7 +460,7 @@ impl DividerInt for u64 {
         })
     }
 
-    fn recover(denom: &Divider<Self>) -> Self {
+    fn recover(denom: &DividerInner<Self>) -> Self {
         let more = denom.more;
         let shift = more & Self::SHIFT_MASK;
 
@@ -490,7 +501,7 @@ impl DividerInt for u64 {
         }
     }
 
-    fn branchfree_recover(denom: &BranchFreeDivider<Self>) -> Self {
+    fn branchfree_recover(denom: &DividerInner<Self>) -> Self {
         let more = denom.more;
         let shift = more & Self::SHIFT_MASK;
         if denom.magic == 0 {
@@ -525,13 +536,13 @@ impl DividerInt for u64 {
 
 impl DividerInt for i64 {
     const SHIFT_MASK: u8 = SHIFT_MASK_64;
-    const _BITS: u32 = 64;
+    const BITS: u32 = 64;
     const SIGNED: bool = true;
     type Double = i128;
     type Unsigned = u64;
     type UnsignedDouble = u128;
 
-    fn internal_gen(self, branchfree: bool) -> Result<(Self, u8), DividerError> {
+    fn internal_gen(self, branchfree: bool) -> Result<DividerInner<Self>, DividerError> {
         let d = self;
 
         if d == 0 {
@@ -545,12 +556,12 @@ impl DividerInt for i64 {
         // INT_MIN, because abs(INT_MIN) == INT_MIN, and INT_MIN has one bit set
         // and is a power of 2.
         let abs_d = (if d < 0 { d.wrapping_neg() } else { d }) as Self::Unsigned;
-        let floor_log_2_d = (Self::_BITS - 1) - abs_d.leading_zeros();
+        let floor_log_2_d = (Self::BITS - 1) - abs_d.leading_zeros();
         // check if exactly one bit is set,
         // don't care if abs_d is 0 since that's divide by zero
         Ok(if (abs_d & (abs_d - 1)) == 0 {
             // Branchfree and normal paths are exactly the same
-            (
+            DividerInner::new(
                 0,
                 floor_log_2_d as u8 | if d < 0 { NEGATIVE_DIVISOR } else { 0 },
             )
@@ -560,7 +571,7 @@ impl DividerInt for i64 {
             // the dividend here is 2**(floor_log_2_d + 31), so the low 32 bit word
             // is 0 and the high word is floor_log_2_d - 1
             let (proposed_m, rem) =
-                (1u128 << (floor_log_2_d - 1 + Self::_BITS)).div_rem(&(abs_d as u128));
+                (1u128 << (floor_log_2_d - 1 + Self::BITS)).div_rem(&(abs_d as u128));
             let mut proposed_m = proposed_m as Self::Unsigned;
             let rem = rem as Self::Unsigned;
             let e = abs_d - rem;
@@ -593,11 +604,11 @@ impl DividerInt for i64 {
                     magic = -magic;
                 }
             }
-            (magic, more)
+            DividerInner::new(magic, more)
         })
     }
 
-    fn recover(denom: &Divider<Self>) -> Self {
+    fn recover(denom: &DividerInner<Self>) -> Self {
         let more = denom.more;
         let shift = more & Self::SHIFT_MASK;
         if 0 == denom.magic {
@@ -620,7 +631,7 @@ impl DividerInt for i64 {
             } else {
                 denom.magic
             } as Self::Unsigned;
-            let n = 1u128 << (shift as u32 + Self::_BITS);
+            let n = 1u128 << (shift as u32 + Self::BITS);
             let q = (n / d as u128) as u64;
             let mut result = (q + 1) as Self;
             if negative_divisor {
@@ -631,40 +642,40 @@ impl DividerInt for i64 {
     }
 
     #[inline]
-    fn branchfree_recover(denom: &BranchFreeDivider<Self>) -> Self {
-        Self::recover(unsafe { &*(denom as *const _ as *const Divider<Self>) })
+    fn branchfree_recover(denom: &DividerInner<Self>) -> Self {
+        Self::recover(denom)
     }
 }
 
 impl<T: DividerInt> From<T> for Divider<T> {
     fn from(d: T) -> Self {
-        d.gen().unwrap()
+        Self::new(d).unwrap()
     }
 }
 
 impl<T: DividerInt> Divider<T> {
     pub fn new(d: T) -> Result<Self, DividerError> {
-        d.gen()
+        d.gen().map(Self)
     }
 
     pub fn recover(&self) -> T {
-        T::recover(self)
+        T::recover(&self.0)
     }
 }
 
 impl<T: DividerInt> From<T> for BranchFreeDivider<T> {
     fn from(d: T) -> Self {
-        d.branchfree_gen().unwrap()
+        Self::new(d).unwrap()
     }
 }
 
 impl<T: DividerInt> BranchFreeDivider<T> {
     pub fn new(d: T) -> Result<Self, DividerError> {
-        d.branchfree_gen()
+        d.branchfree_gen().map(Self)
     }
 
     pub fn recover(&self) -> T {
-        T::branchfree_recover(self)
+        T::branchfree_recover(&self.0)
     }
 }
 
@@ -692,10 +703,10 @@ impl std::ops::Div<&Divider<Self>> for i32 {
     #[inline]
     fn div(self, denom: &Divider<Self>) -> Self::Output {
         let numer = self;
-        let more = denom.more;
+        let more = denom.0.more;
         let shift = more & Self::SHIFT_MASK;
 
-        if 0 == denom.magic {
+        if 0 == denom.0.magic {
             let sign = (more as i8 >> 7) as u32;
             let mask = (1u32 << shift) - 1;
             let uq = (numer as u32).wrapping_add((numer >> 31) as u32 & mask);
@@ -704,7 +715,7 @@ impl std::ops::Div<&Divider<Self>> for i32 {
             q = (q as u32 ^ sign).wrapping_sub(sign) as Self;
             q
         } else {
-            let mut uq = Self::mullhi(denom.magic, numer) as u32;
+            let mut uq = Self::mullhi(denom.0.magic, numer) as u32;
             if 0 != (more & ADD_MARKER) {
                 // must be arithmetic shift and then sign extend
                 let sign = (more as i8 >> 7) as Self;
@@ -726,11 +737,11 @@ impl std::ops::Div<&BranchFreeDivider<Self>> for i32 {
     #[inline]
     fn div(self, denom: &BranchFreeDivider<Self>) -> Self::Output {
         let numer = self;
-        let more = denom.more;
+        let more = denom.0.more;
         let shift = more & Self::SHIFT_MASK;
         // must be arithmetic shift and then sign extend
         let sign = (more as i8 >> 7) as Self;
-        let magic = denom.magic;
+        let magic = denom.0.magic;
         let mut q = Self::mullhi(magic, numer);
         q += numer;
 
@@ -746,7 +757,7 @@ impl std::ops::Div<&BranchFreeDivider<Self>> for i32 {
         // Negate if needed
         q = (q ^ sign).wrapping_sub(sign);
 
-        return q;
+        q
     }
 }
 
@@ -774,10 +785,10 @@ impl std::ops::Div<&Divider<Self>> for i64 {
     #[inline]
     fn div(self, denom: &Divider<Self>) -> Self::Output {
         let numer = self;
-        let more = denom.more;
+        let more = denom.0.more;
         let shift = more & Self::SHIFT_MASK;
 
-        if 0 == denom.magic {
+        if 0 == denom.0.magic {
             let sign = (more as i8 >> 7) as u64;
             let mask = (1u64 << shift) - 1;
             let uq = (numer as u64).wrapping_add((numer >> 63) as u64 & mask);
@@ -786,7 +797,7 @@ impl std::ops::Div<&Divider<Self>> for i64 {
             q = (q as u64 ^ sign).wrapping_sub(sign) as Self;
             q
         } else {
-            let mut uq = Self::mullhi(denom.magic, numer) as u64;
+            let mut uq = Self::mullhi(denom.0.magic, numer) as u64;
             if 0 != (more & ADD_MARKER) {
                 // must be arithmetic shift and then sign extend
                 let sign = (more as i8 >> 7) as Self;
@@ -808,11 +819,11 @@ impl std::ops::Div<&BranchFreeDivider<Self>> for i64 {
     #[inline]
     fn div(self, denom: &BranchFreeDivider<Self>) -> Self::Output {
         let numer = self;
-        let more = denom.more;
+        let more = denom.0.more;
         let shift = more & Self::SHIFT_MASK;
         // must be arithmetic shift and then sign extend
         let sign = (more as i8 >> 7) as Self;
-        let magic = denom.magic;
+        let magic = denom.0.magic;
         let mut q = Self::mullhi(magic, numer);
         q += numer;
 
@@ -828,6 +839,6 @@ impl std::ops::Div<&BranchFreeDivider<Self>> for i64 {
         // Negate if needed
         q = (q ^ sign).wrapping_sub(sign);
 
-        return q;
+        q
     }
 }
