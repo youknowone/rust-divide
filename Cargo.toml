@@ -17,3 +17,6 @@ readme = "README.md"
 num-integer = "0.1.44"
 num-traits = "0.2.14"
 thiserror = "1.0.24"
+
+[dev-dependencies]
+proptest = "1.0"
