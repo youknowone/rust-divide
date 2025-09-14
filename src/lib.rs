@@ -1,19 +1,13 @@
-// libdivide.h - Optimized integer division
-// https://libdivide.com
-//
-// Copyright (C) 2010 - 2021 ridiculous_fish, <libdivide@ridiculousfish.com>
-// Copyright (C) 2016 - 2021 Kim Walisch, <kim.walisch@gmail.com>
-//
-// libdivide is dual-licensed under the Boost or zlib licenses.
-// You may use libdivide under the terms of either of these.
-// See LICENSE.txt for more details.
+// See LICENSE.txt for license.
 
-// Port from 4.0.0
+// Port from libdivide.h 4.0.0
 
+#![no_std]
+
+use core::convert::TryInto;
+use core::fmt::Debug;
 use num_integer::Integer;
 use num_traits::{PrimInt, Unsigned, WrappingShr};
-use std::convert::TryInto;
-use std::fmt::Debug;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct DividerInner<T> {
@@ -679,7 +673,7 @@ impl<T: DividerInt> BranchFreeDivider<T> {
     }
 }
 
-impl std::ops::Div<&Divider<Self>> for u32 {
+impl core::ops::Div<&Divider<Self>> for u32 {
     type Output = Self;
 
     #[inline]
@@ -688,7 +682,7 @@ impl std::ops::Div<&Divider<Self>> for u32 {
     }
 }
 
-impl std::ops::Div<&BranchFreeDivider<Self>> for u32 {
+impl core::ops::Div<&BranchFreeDivider<Self>> for u32 {
     type Output = Self;
 
     #[inline]
@@ -697,7 +691,7 @@ impl std::ops::Div<&BranchFreeDivider<Self>> for u32 {
     }
 }
 
-impl std::ops::Div<&Divider<Self>> for i32 {
+impl core::ops::Div<&Divider<Self>> for i32 {
     type Output = Self;
 
     #[inline]
@@ -731,7 +725,7 @@ impl std::ops::Div<&Divider<Self>> for i32 {
     }
 }
 
-impl std::ops::Div<&BranchFreeDivider<Self>> for i32 {
+impl core::ops::Div<&BranchFreeDivider<Self>> for i32 {
     type Output = Self;
 
     #[inline]
@@ -761,7 +755,7 @@ impl std::ops::Div<&BranchFreeDivider<Self>> for i32 {
     }
 }
 
-impl std::ops::Div<&Divider<Self>> for u64 {
+impl core::ops::Div<&Divider<Self>> for u64 {
     type Output = Self;
 
     #[inline]
@@ -770,7 +764,7 @@ impl std::ops::Div<&Divider<Self>> for u64 {
     }
 }
 
-impl std::ops::Div<&BranchFreeDivider<Self>> for u64 {
+impl core::ops::Div<&BranchFreeDivider<Self>> for u64 {
     type Output = Self;
 
     #[inline]
@@ -779,7 +773,7 @@ impl std::ops::Div<&BranchFreeDivider<Self>> for u64 {
     }
 }
 
-impl std::ops::Div<&Divider<Self>> for i64 {
+impl core::ops::Div<&Divider<Self>> for i64 {
     type Output = Self;
 
     #[inline]
@@ -813,7 +807,7 @@ impl std::ops::Div<&Divider<Self>> for i64 {
     }
 }
 
-impl std::ops::Div<&BranchFreeDivider<Self>> for i64 {
+impl core::ops::Div<&BranchFreeDivider<Self>> for i64 {
     type Output = Self;
 
     #[inline]
