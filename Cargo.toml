@@ -1,12 +1,12 @@
 [package]
 name = "libdivide"
 description = """Port of libdivide."""
-version = "0.4.0"
+version = "0.4.1"
 homepage = "https://github.com/youknowone/rust-divide"
 documentation = "https://docs.rs/libdivide"
 repository = "https://github.com/youknowone/rust-divide"
 authors = ["Jeong YunWon <libdivide@youknowone.org>"]
-edition = "2018"
+edition = "2021"
 license = "Zlib"
 license-file = "LICENSE.txt"
 keywords = ["libdivide", "divide"]
